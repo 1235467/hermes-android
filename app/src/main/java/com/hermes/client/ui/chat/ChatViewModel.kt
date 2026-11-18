@@ -112,6 +112,10 @@ class ChatViewModel @Inject constructor(
     fun open(id: String) {
         sessionId = id
         connJob?.cancel()
+        // Nothing else guarantees the shared socket is up when a session is opened from
+        // Home/deep links (only the Chats list, the notification service, and share intents
+        // connect()). Idempotent no-op when already connecting/connected.
+        chat.connect()
         // A share created this session and stashed its text; surface it as the initial composer draft.
         val ps = pendingShareStore.take(id)
         ps?.text?.let { _initialDraft.value = it }

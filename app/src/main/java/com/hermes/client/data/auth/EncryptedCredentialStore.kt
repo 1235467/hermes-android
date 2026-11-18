@@ -62,6 +62,7 @@ class EncryptedCredentialStore(private val context: Context) : CredentialStore {
             token = prefs.getString("token", null) ?: "",
             username = prefs.getString("username", null) ?: "",
             password = prefs.getString("password", null) ?: "",
+            clientCertAlias = prefs.getString("client_cert_alias", null) ?: "",
         )
     }
 
@@ -71,6 +72,7 @@ class EncryptedCredentialStore(private val context: Context) : CredentialStore {
             .putString("token", config.token)
             .putString("username", config.username)
             .putString("password", config.password)
+            .putString("client_cert_alias", config.clientCertAlias)
             .apply()
     }
 

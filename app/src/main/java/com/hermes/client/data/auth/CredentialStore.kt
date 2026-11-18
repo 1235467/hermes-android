@@ -8,9 +8,15 @@ data class GatewayConfig(
     // plus a per-socket WS ticket, instead of the loopback session token.
     val username: String = "",
     val password: String = "",
+    // KeyChain alias of a client certificate for mTLS. Only the alias is persisted — the key
+    // material never leaves the system keystore. Blank = no client certificate.
+    val clientCertAlias: String = "",
 ) {
     /** True when this targets a gated dashboard (basic-auth); false for a loopback/token setup. */
     val isGated: Boolean get() = username.isNotBlank()
+
+    /** True when a client certificate should be presented during the TLS handshake. */
+    val usesMtls: Boolean get() = clientCertAlias.isNotBlank()
 
     /** Base WS endpoint with no auth query — the auth param (?token / ?ticket) is appended later. */
     val wsBase: String

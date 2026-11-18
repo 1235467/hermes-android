@@ -3,10 +3,13 @@ package com.hermes.client.di
 import android.content.Context
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.EncryptedCredentialStore
+import com.hermes.client.data.network.ClientCertManager
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.KeyChainCertSource
+import com.hermes.client.data.network.SessionTokenDiscovery
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
@@ -40,12 +43,20 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideGatedAuth(json: Json, store: CredentialStore): GatedAuth =
-        GatedAuth(json) { store.load() }
+    fun provideClientCertManager(
+        @ApplicationContext context: Context,
+        store: CredentialStore,
+    ): ClientCertManager =
+        ClientCertManager(KeyChainCertSource(context)) { store.load()?.clientCertAlias }
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(gatedAuth: GatedAuth): OkHttpClient = OkHttpClient.Builder()
+    fun provideGatedAuth(json: Json, store: CredentialStore, certs: ClientCertManager): GatedAuth =
+        GatedAuth(json, { store.load() }, certs)
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(gatedAuth: GatedAuth, certs: ClientCertManager): OkHttpClient = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         // Gated-dashboard auth: the cookie jar carries the session cookies on every REST call,
@@ -53,6 +64,9 @@ object AppModule {
         // stays empty and the authenticator is a no-op (no username configured).
         .cookieJar(gatedAuth.cookieJar)
         .authenticator(GatedAuthenticator(gatedAuth))
+        // mTLS: the factory re-resolves the configured KeyChain alias per connection, so picking
+        // or clearing a client certificate applies to REST + WebSocket without a client rebuild.
+        .sslSocketFactory(certs.socketFactory, certs.trustManager)
         .build()
 
     @Provides
@@ -66,12 +80,18 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideSessionTokenDiscovery(okHttp: OkHttpClient): SessionTokenDiscovery =
+        SessionTokenDiscovery(okHttp)
+
+    @Provides
+    @Singleton
     fun provideHermesGatewayClient(
         okHttp: OkHttpClient,
         json: Json,
         scope: CoroutineScope,
         store: CredentialStore,
         gatedAuth: GatedAuth,
+        tokenDiscovery: SessionTokenDiscovery,
     ): HermesGatewayClient = HermesGatewayClient(
         okHttp = okHttp,
         json = json,
@@ -85,8 +105,24 @@ object AppModule {
                 val ticket = withContext(Dispatchers.IO) { gatedAuth.wsTicket(okHttp) }
                     ?: error("ws ticket unavailable")
                 "${cfg.wsBase}?ticket=$ticket"
-            } else {
+            } else if (cfg.token.isNotBlank()) {
                 cfg.wsUrl
+            } else {
+                // No stored token. First try minting a one-use WS ticket — deployments that
+                // inject the session token as a request header (e.g. an mTLS reverse proxy)
+                // authenticate this POST even though the WS upgrade itself can't carry the
+                // header, and ?ticket= is accepted by both loopback and gated WS gates.
+                val ticket = withContext(Dispatchers.IO) { gatedAuth.wsTicket(okHttp) }
+                if (ticket != null) {
+                    "${cfg.wsBase}?ticket=$ticket"
+                } else {
+                    // Fall back to scraping the session token the server injects into
+                    // index.html, like the browser/Desktop do. Re-fetched per connect so a
+                    // rotated token (the server re-mints it on every start without
+                    // HERMES_DASHBOARD_SESSION_TOKEN) is picked up automatically.
+                    val token = tokenDiscovery.fetch(cfg.baseUrl).orEmpty()
+                    if (token.isBlank()) cfg.wsBase else "${cfg.wsBase}?token=$token"
+                }
             }
         },
     )
@@ -97,10 +133,14 @@ object AppModule {
         okHttp: OkHttpClient,
         json: Json,
         store: CredentialStore,
+        certs: ClientCertManager,
+        tokenDiscovery: SessionTokenDiscovery,
     ): HermesRestApi = HermesRestApi(
         okHttp = okHttp,
         json = json,
         configProvider = { store.load() },
+        certs = certs,
+        tokenDiscovery = tokenDiscovery,
     )
 
     @Provides
