@@ -71,6 +71,8 @@ class MissionControlViewModel @Inject constructor(
                 sections = groupActivity(items, now),
                 needsYou = alerts,
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // a superseded load (loadJob?.cancel()) is cancelled, not an error
         } catch (e: HermesApiException) {
             if (e.code == 401) _state.value = MissionControlState(unauthorized = true)
             else _state.value = MissionControlState(error = e.message ?: "Failed to load")
