@@ -105,13 +105,24 @@ object AppModule {
                 val ticket = withContext(Dispatchers.IO) { gatedAuth.wsTicket(okHttp) }
                     ?: error("ws ticket unavailable")
                 "${cfg.wsBase}?ticket=$ticket"
+            } else if (cfg.token.isNotBlank()) {
+                cfg.wsUrl
             } else {
-                // No stored token → scrape the session token the server injects into index.html,
-                // like the browser/Desktop do. Re-fetched per connect so a rotated token (the
-                // server re-mints it on every start without HERMES_DASHBOARD_SESSION_TOKEN) is
-                // picked up automatically.
-                val token = cfg.token.ifBlank { tokenDiscovery.fetch(cfg.baseUrl).orEmpty() }
-                if (token.isBlank()) cfg.wsBase else "${cfg.wsBase}?token=$token"
+                // No stored token. First try minting a one-use WS ticket — deployments that
+                // inject the session token as a request header (e.g. an mTLS reverse proxy)
+                // authenticate this POST even though the WS upgrade itself can't carry the
+                // header, and ?ticket= is accepted by both loopback and gated WS gates.
+                val ticket = withContext(Dispatchers.IO) { gatedAuth.wsTicket(okHttp) }
+                if (ticket != null) {
+                    "${cfg.wsBase}?ticket=$ticket"
+                } else {
+                    // Fall back to scraping the session token the server injects into
+                    // index.html, like the browser/Desktop do. Re-fetched per connect so a
+                    // rotated token (the server re-mints it on every start without
+                    // HERMES_DASHBOARD_SESSION_TOKEN) is picked up automatically.
+                    val token = tokenDiscovery.fetch(cfg.baseUrl).orEmpty()
+                    if (token.isBlank()) cfg.wsBase else "${cfg.wsBase}?token=$token"
+                }
             }
         },
     )
