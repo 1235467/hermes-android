@@ -32,7 +32,8 @@ on your phone:
 2. When prompted, allow installs from your browser or Files app ("Install unknown apps").
 3. Open the downloaded `.apk` and tap **Install**.
 4. Launch **Hermes** and complete the one-time [setup](#first-run-setup) — gateway URL plus
-   either a session token (loopback) or a username/password (password-protected dashboard).
+   either a session token (loopback) or a username/password (password-protected dashboard),
+   and optionally a client certificate if your gateway requires mTLS.
 
 > The APK is signed with the project's release key. Because it's installed outside the
 > Play Store, Android may warn about an app from an unknown developer — that's expected.
@@ -79,7 +80,9 @@ on your phone:
 - **Messaging** — enable/disable platform integrations with a guided setup flow for the
   required credentials.
 - **Settings** — **Server & token** (edit the gateway URL and token, or username/password for
-  a password-protected dashboard, then reconnect), appearance (System/Light/Dark + tool-call
+  a password-protected dashboard, then reconnect), **client certificate** (pick an mTLS
+  certificate via the system picker — the private key stays in the Android keystore),
+  appearance (System/Light/Dark + tool-call
   verbosity), memory, MCP servers, API keys/environment variables, and **Diagnostics** (a
   toggleable, token-redacted, shareable debug log). Configuration edits are written to the
   live gateway config.
@@ -95,7 +98,7 @@ on your phone:
 | UI | Jetpack Compose + Material 3, `ModalNavigationDrawer` wrapping a Navigation-Compose `NavHost` |
 | State | MVVM — `ViewModel` + `StateFlow`, `collectAsStateWithLifecycle` |
 | DI | Hilt |
-| Networking | OkHttp — REST + a WebSocket JSON-RPC stream to the gateway. Auth is either the loopback session token, or (gated dashboard) a cookie-jar session with 401 re-login and per-socket WS tickets |
+| Networking | OkHttp — REST + a WebSocket JSON-RPC stream to the gateway. Auth is the loopback session token (entered or auto-discovered via WS-ticket mint / index.html scrape), or (gated dashboard) a cookie-jar session with 401 re-login and per-socket WS tickets. Optional mTLS client certificate via the Android KeyChain (private key stays in the system keystore) |
 | Local storage | EncryptedSharedPreferences (credentials: URL, token, username/password); DataStore (theme, tool-call display, diagnostics toggle) |
 
 Package layout under `app/src/main/java/com/hermes/client/`:
@@ -197,12 +200,23 @@ On first launch the app shows a **Setup** screen. You can change any of these la
 2. **Auth** — depends on how the dashboard is bound:
    - **Token mode** — a dashboard bound to **loopback** (`--host 127.0.0.1`) accepts the
      **session token** (sent as `X-Hermes-Session-Token`). Leave username/password blank.
+     When the token field is blank the app tries to discover the credential itself — it
+     mints a single-use WebSocket ticket via `POST /api/auth/ws-ticket`, then falls back
+     to reading the token the server injects into index.html (the same mechanism the
+     browser and Desktop use). Manual entry still works and always wins.
      See [Getting your token](#getting-your-hermes-token).
    - **Password mode (gated)** — a dashboard bound to a **network address** (e.g. its
      Tailscale IP) refuses the loopback token and requires an auth provider, so set
      **Username + Password**. The app logs in (`POST /auth/password-login`), holds the
      rotating session cookie, and mints a per-connection WebSocket ticket automatically.
      Leave the token blank.
+3. **Client certificate (mTLS)** — optional. If your gateway sits behind a reverse proxy
+   that requires a client certificate (e.g. `ssl_verify_client on` in nginx), tap
+   **Client certificate** and pick one in the Android system certificate picker
+   (`KeyChain.choosePrivateKeyAlias`). The private key never leaves the system keystore —
+   hardware-backed (TEE/StrongBox) keys work, and nothing is imported into the app.
+   The certificate is presented on every connection: REST, WebSocket, and gated login.
+   mTLS can be used on its own or combined with either auth mode above.
 
 Credentials are stored **encrypted** on the device. On an expired/invalid session (HTTP 401)
 the app re-authenticates automatically in password mode, or routes back to Setup in token mode.
