@@ -9,6 +9,7 @@ import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.KeyChainCertSource
+import com.hermes.client.data.network.SessionTokenDiscovery
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
@@ -79,12 +80,18 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideSessionTokenDiscovery(okHttp: OkHttpClient): SessionTokenDiscovery =
+        SessionTokenDiscovery(okHttp)
+
+    @Provides
+    @Singleton
     fun provideHermesGatewayClient(
         okHttp: OkHttpClient,
         json: Json,
         scope: CoroutineScope,
         store: CredentialStore,
         gatedAuth: GatedAuth,
+        tokenDiscovery: SessionTokenDiscovery,
     ): HermesGatewayClient = HermesGatewayClient(
         okHttp = okHttp,
         json = json,
@@ -99,7 +106,12 @@ object AppModule {
                     ?: error("ws ticket unavailable")
                 "${cfg.wsBase}?ticket=$ticket"
             } else {
-                cfg.wsUrl
+                // No stored token → scrape the session token the server injects into index.html,
+                // like the browser/Desktop do. Re-fetched per connect so a rotated token (the
+                // server re-mints it on every start without HERMES_DASHBOARD_SESSION_TOKEN) is
+                // picked up automatically.
+                val token = cfg.token.ifBlank { tokenDiscovery.fetch(cfg.baseUrl).orEmpty() }
+                if (token.isBlank()) cfg.wsBase else "${cfg.wsBase}?token=$token"
             }
         },
     )
@@ -111,11 +123,13 @@ object AppModule {
         json: Json,
         store: CredentialStore,
         certs: ClientCertManager,
+        tokenDiscovery: SessionTokenDiscovery,
     ): HermesRestApi = HermesRestApi(
         okHttp = okHttp,
         json = json,
         configProvider = { store.load() },
         certs = certs,
+        tokenDiscovery = tokenDiscovery,
     )
 
     @Provides
