@@ -79,6 +79,12 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
             label = { Text("Token (loopback only — blank if using a password)") },
             modifier = Modifier.fillMaxWidth(),
         )
+        com.hermes.client.ui.components.ClientCertSection(
+            alias = state.clientCertAlias,
+            summary = state.clientCertSummary,
+            onAliasPicked = vm::onCertAliasPicked,
+            onClear = vm::clearCertAlias,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { vm.test() }) { Text("Test") }
             Button(onClick = { vm.save() }) { Text("Save & continue") }

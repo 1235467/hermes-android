@@ -78,6 +78,12 @@ fun ConnectionSettingsScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            com.hermes.client.ui.components.ClientCertSection(
+                alias = state.clientCertAlias,
+                summary = state.clientCertSummary,
+                onAliasPicked = vm::onCertAliasPicked,
+                onClear = vm::clearCertAlias,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { vm.test() }) { Text("Test") }
                 Button(onClick = { vm.save() }) { Text("Save & reconnect") }

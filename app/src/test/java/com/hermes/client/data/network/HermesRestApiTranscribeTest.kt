@@ -16,9 +16,9 @@ class HermesRestApiTranscribeTest {
     @get:Rule val serverRule = MockWebServerRule()
     private val json = Json { ignoreUnknownKeys = true }
 
-    private fun api(server: MockWebServer) = HermesRestApi(OkHttpClient(), json) {
+    private fun api(server: MockWebServer) = HermesRestApi(OkHttpClient(), json, {
         GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
-    }
+    })
 
     @Test fun transcribe_returns_trimmed_transcript_and_posts_data_url() = runTest {
         serverRule.server.enqueue(MockResponse.Builder().code(200).body(

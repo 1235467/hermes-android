@@ -53,12 +53,21 @@ class InMemoryCookieJar : CookieJar {
 class GatedAuth(
     private val json: Json,
     private val configProvider: () -> GatewayConfig?,
+    // Optional mTLS support: when the gateway requires client certs, even the login POST fails
+    // the TLS handshake without one — so every client here shares the cert-aware socket factory.
+    private val certs: ClientCertManager? = null,
 ) {
     val cookieJar = InMemoryCookieJar()
 
     // A bare client (NO authenticator → no re-auth recursion) that shares the cookie jar so the
     // login response's Set-Cookie lands where authenticated requests will read it.
-    private val loginClient by lazy { OkHttpClient.Builder().cookieJar(cookieJar).build() }
+    private val loginClient by lazy {
+        OkHttpClient.Builder().cookieJar(cookieJar).applyMtls().build()
+    }
+
+    private fun OkHttpClient.Builder.applyMtls(): OkHttpClient.Builder = apply {
+        certs?.let { sslSocketFactory(it.socketFactory, it.trustManager) }
+    }
 
     /** Log in with the stored username/password; session cookies land in [cookieJar]. */
     fun login(): Boolean {
@@ -101,20 +110,27 @@ class GatedAuth(
 
     /**
      * One-off login probe with explicit values for the setup "Test" button — uses a throwaway
-     * client so it neither persists creds nor disturbs the live session cookies.
+     * client so it neither persists creds nor disturbs the live session cookies. [certAlias]
+     * is the cert the user just picked (not yet saved), so the probe presents the right client
+     * certificate; blank means probe without one.
      */
-    fun probeLogin(baseUrl: String, username: String, password: String): Boolean {
+    fun probeLogin(baseUrl: String, username: String, password: String, certAlias: String? = null): Boolean {
         val payload: JsonObject = buildJsonObject {
             put("provider", "basic")
             put("username", username)
             put("password", password)
         }
+        val client = certs?.let {
+            OkHttpClient.Builder()
+                .sslSocketFactory(it.socketFactoryFor(certAlias), it.trustManager)
+                .build()
+        } ?: OkHttpClient()
         return runCatching {
             val req = Request.Builder()
                 .url("${baseUrl.trimEnd('/')}/auth/password-login")
                 .post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(JSON_MEDIA))
                 .build()
-            OkHttpClient().newCall(req).execute().use { it.isSuccessful }
+            client.newCall(req).execute().use { it.isSuccessful }
         }.getOrDefault(false)
     }
 

@@ -14,7 +14,7 @@ class GatedAuthTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun authFor(base: String) =
-        GatedAuth(json) { GatewayConfig(baseUrl = base, token = "", username = "admin", password = "pw") }
+        GatedAuth(json, { GatewayConfig(baseUrl = base, token = "", username = "admin", password = "pw") })
 
     @Test fun login_posts_basic_credentials_and_succeeds() {
         MockWebServer().use { server ->

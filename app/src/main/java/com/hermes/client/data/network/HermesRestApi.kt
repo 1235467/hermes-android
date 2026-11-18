@@ -20,6 +20,7 @@ class HermesRestApi(
     private val okHttp: OkHttpClient,
     private val json: Json,
     private val configProvider: () -> GatewayConfig?,
+    private val certs: ClientCertManager? = null,
 ) {
     private fun config(): GatewayConfig =
         configProvider() ?: throw HermesApiException(0, "no gateway configured")
@@ -54,14 +55,24 @@ class HermesRestApi(
     /**
      * T10b: test connectivity using explicitly supplied credentials WITHOUT reading from
      * configProvider. Used by SetupViewModel.test() so unverified creds are never persisted.
+     * [certAlias] is a client cert the user picked but hasn't saved; when provided (even blank)
+     * a throwaway client presents exactly that cert instead of the stored one.
      */
-    suspend fun statusFor(baseUrl: String, token: String): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val rb = Request.Builder().url("${baseUrl.trimEnd('/')}/api/status").get()
-            if (token.isNotBlank()) rb.header("X-Hermes-Session-Token", token)
-            okHttp.newCall(rb.build()).execute().use { it.isSuccessful }
-        }.getOrDefault(false)
-    }
+    suspend fun statusFor(baseUrl: String, token: String, certAlias: String? = null): Boolean =
+        withContext(Dispatchers.IO) {
+            val client = if (certAlias != null && certs != null) {
+                OkHttpClient.Builder()
+                    .sslSocketFactory(certs.socketFactoryFor(certAlias), certs.trustManager)
+                    .build()
+            } else {
+                okHttp
+            }
+            runCatching {
+                val rb = Request.Builder().url("${baseUrl.trimEnd('/')}/api/status").get()
+                if (token.isNotBlank()) rb.header("X-Hermes-Session-Token", token)
+                client.newCall(rb.build()).execute().use { it.isSuccessful }
+            }.getOrDefault(false)
+        }
 
     /** Delegates to [statusFor] using the current stored config. */
     suspend fun status(): Boolean {

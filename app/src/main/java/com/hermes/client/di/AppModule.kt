@@ -3,10 +3,12 @@ package com.hermes.client.di
 import android.content.Context
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.EncryptedCredentialStore
+import com.hermes.client.data.network.ClientCertManager
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.KeyChainCertSource
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
@@ -40,12 +42,20 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideGatedAuth(json: Json, store: CredentialStore): GatedAuth =
-        GatedAuth(json) { store.load() }
+    fun provideClientCertManager(
+        @ApplicationContext context: Context,
+        store: CredentialStore,
+    ): ClientCertManager =
+        ClientCertManager(KeyChainCertSource(context)) { store.load()?.clientCertAlias }
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(gatedAuth: GatedAuth): OkHttpClient = OkHttpClient.Builder()
+    fun provideGatedAuth(json: Json, store: CredentialStore, certs: ClientCertManager): GatedAuth =
+        GatedAuth(json, { store.load() }, certs)
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(gatedAuth: GatedAuth, certs: ClientCertManager): OkHttpClient = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         // Gated-dashboard auth: the cookie jar carries the session cookies on every REST call,
@@ -53,6 +63,9 @@ object AppModule {
         // stays empty and the authenticator is a no-op (no username configured).
         .cookieJar(gatedAuth.cookieJar)
         .authenticator(GatedAuthenticator(gatedAuth))
+        // mTLS: the factory re-resolves the configured KeyChain alias per connection, so picking
+        // or clearing a client certificate applies to REST + WebSocket without a client rebuild.
+        .sslSocketFactory(certs.socketFactory, certs.trustManager)
         .build()
 
     @Provides
@@ -97,10 +110,12 @@ object AppModule {
         okHttp: OkHttpClient,
         json: Json,
         store: CredentialStore,
+        certs: ClientCertManager,
     ): HermesRestApi = HermesRestApi(
         okHttp = okHttp,
         json = json,
         configProvider = { store.load() },
+        certs = certs,
     )
 
     @Provides

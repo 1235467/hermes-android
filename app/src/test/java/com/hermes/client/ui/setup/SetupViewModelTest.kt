@@ -1,6 +1,7 @@
 package com.hermes.client.ui.setup
 
 import com.hermes.client.data.auth.CredentialStore
+import com.hermes.client.data.network.ClientCertManager
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.HermesRestApi
 import io.mockk.every
@@ -21,6 +22,7 @@ class SetupViewModelTest {
     private val store = mockk<CredentialStore>(relaxed = true)
     private val rest = mockk<HermesRestApi>(relaxed = true)
     private val gatedAuth = mockk<GatedAuth>(relaxed = true)
+    private val certs = mockk<ClientCertManager>(relaxed = true)
 
     @Before fun setUp() {
         Dispatchers.setMain(StandardTestDispatcher())
@@ -29,7 +31,7 @@ class SetupViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun vm() = SetupViewModel(store, rest, gatedAuth)
+    private fun vm() = SetupViewModel(store, rest, gatedAuth, certs)
 
     @Test fun applyPairing_populates_fields_from_valid_payload() {
         val vm = vm()
